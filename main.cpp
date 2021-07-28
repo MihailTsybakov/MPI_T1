@@ -4,9 +4,6 @@
 
 #include "mpi.h"
 
-#define LOCK(void) if (rank) MPI_Barrier(MPI_COMM_WORLD); 
-#define UNLOCK(void) if (!rank) MPI_Barrier(MPI_COMM_WORLD);
-
 /// Calculates PI
 void calc_PI(int N, double d, int rank, int size, double& PI)
 {
