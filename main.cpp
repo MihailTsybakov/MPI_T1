@@ -48,80 +48,135 @@ void calc_volume(int N, double d, double R, int rank, int size, double& sphere_v
 	sphere_vol = 2*R*d*res;
 }
 
+class process_controller
+{
+private:
+	MPI_Comm communicator;
+public:
+	process_controller(MPI_Comm communicator)
+	{
+		this->communicator = communicator;
+	}
+	void handle(int rank, int size)
+	{
+		bool handle_flag = true;
+		while (handle_flag)
+		{
+			int command;
+			MPI_Bcast(&command, 1, MPI_INT, 0, communicator);
+
+			switch (command)
+			{
+			case 0:
+				// Finalizing handle
+				handle_flag = false;
+				break;
+			case 1:
+				// Pi
+				double PI;
+				calc_PI(1e7, 1e-7, rank, size, PI);
+				break;
+			case 2:
+				// Area
+				double circle_area;
+				calc_area(1e7, 1e-7, 3.0, rank, size, circle_area);
+				break;
+			case 3:
+				// Volume
+				double sphere_volume;
+				calc_volume(1e7, 1e-7, 3.0, rank, size, sphere_volume);
+				break;
+			default:
+				// Unknown command
+				std::cout << " Rank [" << rank << "]: Unknown command (" << command << ") recieved. Shutting down." << std::endl;
+				handle_flag = false;
+				break;
+			}
+		}
+		MPI_Finalize();
+	}
+};
+
 int main(int argc, char* argv[])
 {
 	int rank, size;
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	
+	process_controller PC(MPI_COMM_WORLD);
 
-	LOCK();
-	// Doing something in root...
-	if (!rank) 
+	if (rank)
 	{
-		std::cout << std::endl;
-
-		std::cout << "Root alone 1.1" << std::endl;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
-
-		std::cout << "Root alone 1.2" << std::endl;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
-
-		std::cout << "Root alone 1.3" << std::endl;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
+		PC.handle(rank, size);
+		return 0;
 	}
+
+	// Doing something in root...
+	std::cout << std::endl;
+
+	std::cout << "Root alone 1.1" << std::endl;
+	std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
+
+	std::cout << "Root alone 1.2" << std::endl;
+	std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
+
+	std::cout << "Root alone 1.3" << std::endl;
+	std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
 	// Done doing something, calculating PI now
-	UNLOCK();
 
 	double PI;
+	int root_command = 1;
+	
+	MPI_Bcast(&root_command, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	calc_PI(1e7, 1e-7, rank, size, PI);
 	
-	LOCK();
 	// Doing something in root again
-	if (!rank)
-	{
-		std::cout << "Calculated PI: " << PI << std::endl;
+	std::cout << "Calculated PI: " << PI << std::endl;
 
-		std::cout << "Root alone 2.1" << std::endl;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
+	std::cout << "Root alone 2.1" << std::endl;
+	std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
 
-		std::cout << "Root alone 2.2" << std::endl;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
+	std::cout << "Root alone 2.2" << std::endl;
+	std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
 
-		std::cout << "Root alone 2.3" << std::endl;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
+	std::cout << "Root alone 2.3" << std::endl;
+	std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
 
-	}
 	// Done doing something, calculating circle area:
-	UNLOCK();
 
 	double circle_area;
+	root_command = 2;
+
+	MPI_Bcast(&root_command, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	calc_area(1e7, 1e-7, 3.0, rank, size, circle_area);
 
-	LOCK();
 	// Doing something in root again
-	if (!rank)
-	{
-		std::cout << "Calaculated area: " << circle_area << std::endl;
+	std::cout << "Calaculated area: " << circle_area << std::endl;
 
-		std::cout << "Root alone 3.1" << std::endl;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
+	std::cout << "Root alone 3.1" << std::endl;
+	std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
 
-		std::cout << "Root alone 3.2" << std::endl;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
+	std::cout << "Root alone 3.2" << std::endl;
+	std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
 
-		std::cout << "Root alone 3.3" << std::endl;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
-	}
+	std::cout << "Root alone 3.3" << std::endl;
+	std::this_thread::sleep_for(std::chrono::milliseconds(1'000));
 	// Done doing something, calculating sphere volume
-	UNLOCK();
 
 	double sphere_vol;
+	root_command = 3;
+
+	MPI_Bcast(&root_command, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	calc_volume(1e7, 1e-7, 3.0, rank, size, sphere_vol);
 
-	if (!rank) std::cout << "Calculated volume: " << sphere_vol << std::endl;
+	std::cout << "Calculated volume: " << sphere_vol << std::endl;
 
 	// Shutting down
+
+	root_command = 0;
+	MPI_Bcast(&root_command, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
 	MPI_Finalize();
 	return 0;
 }
