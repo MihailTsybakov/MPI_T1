@@ -23,7 +23,7 @@ int main(int argc, char* argv[])
 
 	MPI_Reduce(&I, &result, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
-	if (!rank) std::cout << "Pi = " << result * 4 * d << std::endl;
+	if (!rank) std::cout << std::endl << "Pi = " << result * 4 * d << std::endl << std::endl;
 
 	MPI_Finalize();
 
