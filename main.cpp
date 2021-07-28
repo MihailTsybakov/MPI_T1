@@ -2,6 +2,8 @@
 #include <thread>
 #include <chrono>
 
+#include "solvertest.h"
+
 #include "mpi.h"
 
 /// Calculates PI
@@ -94,7 +96,7 @@ public:
 	}
 };
 
-int main(int argc, char* argv[])
+int old_main(int argc, char* argv[])
 {
 	int rank, size;
 	MPI_Init(&argc, &argv);
@@ -178,3 +180,12 @@ int main(int argc, char* argv[])
 	return 0;
 }
 
+int main(int argc, char* argv[])
+{
+  std::unique_ptr<SolverTest> test = std::make_unique<PETScCGTest>();
+  test->argc = argc;
+  test->argv = argv;
+  test->A_name = "TestHomoStress4k.mtx";
+  test->file_format = MatrixFileFormat::MTX;
+  test->test();
+}
