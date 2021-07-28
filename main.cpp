@@ -10,6 +10,7 @@
 /// Calculates PI
 void calc_PI(int N, double d, int rank, int size, double& PI)
 {
+	std::cout << " > rank [" << rank << "] working on PI" << std::endl;
 	double I = 0.0, res = 0.0;
 	for (int i = rank; i < N; i += size)
 	{
@@ -22,6 +23,7 @@ void calc_PI(int N, double d, int rank, int size, double& PI)
 /// Calculates circle area
 void calc_area(int N, double d, double R, int rank, int size, double& circle_area)
 {
+	std::cout << " > rank [" << rank << "] working on AREA" << std::endl;
 	double I = 0.0, res = 0.0;
 	for (int i = rank; i < N; i += size)
 	{
@@ -35,6 +37,7 @@ void calc_area(int N, double d, double R, int rank, int size, double& circle_are
 /// Calculates sphere volume
 void calc_volume(int N, double d, double R, int rank, int size, double& sphere_vol)
 {
+	std::cout << " > rank [" << rank << "] working on VOLUME" << std::endl;
 	double I = 0.0, res = 0.0;
 	for (int i = rank; i < N; i += size)
 	{
