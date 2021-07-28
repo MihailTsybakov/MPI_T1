@@ -17,6 +17,7 @@ if(WIN32)
       ${LIB_INSTALL_DIR}
       $ENV{MKL_BINARYDIR}
       $ENV{MKLLIB}
+      "C:/Program Files (x86)/Intel/oneAPI/mkl/latest/lib/intel64"
       "C:/Program Files (x86)/Intel/Composer XE 2015/mkl/lib/intel64"
       "C:/Program Files (x86)/Intel/Composer XE 2013 SP1/mkl/lib/intel64"
       "C:/Program Files (x86)/IntelSWTools/compilers_and_libraries_2017/windows/mkl/lib/intel64"
@@ -87,7 +88,6 @@ else(WIN32)
 endif(WIN32)
 
 find_path(MKL_INCLUDES
-  NAMES
     mkl.h
   PATHS
     ${MKLROOT}/include
@@ -95,6 +95,7 @@ find_path(MKL_INCLUDES
     "C:/Program Files (x86)/Intel/Composer XE 2013 SP1/mkl/include"
     "C:/Program Files (x86)/IntelSWTools/compilers_and_libraries_2017/windows/mkl/include"
     "C:/Program Files (x86)/IntelSWTools/compilers_and_libraries/windows/mkl/include"
+    "C:/Program Files (x86)/Intel/oneAPI/mkl/latest/include"
 )
 
 ### Discover MKL version
