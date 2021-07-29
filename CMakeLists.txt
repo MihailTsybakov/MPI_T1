@@ -6,12 +6,16 @@ set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 
 set(SOLVTEST_H 
 	solvertest.h
+	auxiliary.h
+	process_controller.h
 )
 
 set(SOLVTEST_SRC 
 	main.cpp
 	solvertest.cpp
 	petsccgtest.cpp
+	auxiliary.cpp
+	process_controller.cpp
 )
 
 find_package(MPILibraries REQUIRED)
