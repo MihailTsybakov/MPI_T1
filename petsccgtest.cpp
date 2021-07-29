@@ -18,37 +18,28 @@ int PETScCGTest::test()
   PetscInt ierr = 0;
   PetscMPIInt rank, size;
 
-  ierr = PetscInitialize(&argc, &argv, (char*)0, (char*)0);
+  //ierr = PetscInitialize(&argc, &argv, (char*)0, (char*)0);
   ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
   ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
 
-  int mypid = _getpid();
-  char buffer[1024];
-  sprintf_s(buffer, "MyPid = |%d|\n", mypid);
-  cout << buffer;
-
   if (!rank) 
   {
-    cout << "Number of processes: " << size << endl;
-    cout << "Press Enter........................" << endl;
-    cout.flush();
-    getchar();
+    
     read_matrix_file(string(A_name), file_format, ia, ja, a, sizea, nnza);
     if (sizea == 0)
       return -1;
   }
-
   int err = testSpecific();
 
   if (!rank)
   {
     const int scatter_time = cr::duration_cast<cr::milliseconds>(scatter_end - scatter_start).count();
     const int time = cr::duration_cast<cr::milliseconds>(end - start).count();
-    cout << "Scatter time == " << scatter_time << " ms" << endl;
+    //cout << "Scatter time == " << scatter_time << " ms" << endl; // ~~~
     cout << "Solve time   == " << time << " ms" << endl;
     cout << "Error code   == " << err << std::endl;
   }
-  ierr = PetscFinalize();
+  //ierr = PetscFinalize();
   return ierr;
 }
 
@@ -64,8 +55,8 @@ int PETScCGTest::testSpecific()
   ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &mpi_rank); CHKERRQ(ierr);
   ierr = MPI_Comm_size(PETSC_COMM_WORLD, &mpi_size); CHKERRQ(ierr);
 
-  PetscBarrier(PETSC_NULL);
-  if (!mpi_rank) scatter_start = cr::system_clock::now();
+ /* PetscBarrier(PETSC_NULL);
+  if (!mpi_rank) scatter_start = cr::system_clock::now();*/
 
   int root = 0;
   MPI_Bcast(&sizea, 1, MPI_INT, root, PETSC_COMM_WORLD);
@@ -124,8 +115,8 @@ int PETScCGTest::testSpecific()
   // remove global
   if (!mpi_rank) ia.resize(0); ja.resize(0); a.resize(0);
 
-  PetscBarrier(PETSC_NULL);
-  if (!mpi_rank) scatter_end = cr::system_clock::now();
+  /*PetscBarrier(PETSC_NULL);
+  if (!mpi_rank) scatter_end = cr::system_clock::now();*/
 
   // convert int vector to bigger memory size PetscInt array
   PetscInt* petsc_loc_ia;
