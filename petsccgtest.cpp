@@ -1,5 +1,6 @@
 #include "solvertest.h"
 
+#include <process.h>
 #include <petscksp.h>
 
 using namespace std;
@@ -21,10 +22,20 @@ int PETScCGTest::test()
   ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
   ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
 
+  int mypid = _getpid();
+  char buffer[1024];
+  sprintf_s(buffer, "MyPid = |%d|\n", mypid);
+  cout << buffer;
+
   if (!rank) 
   {
     cout << "Number of processes: " << size << endl;
+    cout << "Press Enter........................" << endl;
+    cout.flush();
+    getchar();
     read_matrix_file(string(A_name), file_format, ia, ja, a, sizea, nnza);
+    if (sizea == 0)
+      return -1;
   }
 
   int err = testSpecific();
@@ -48,7 +59,7 @@ int localSize(int global_size, int mpi_rank, int mpi_size)
 
 int PETScCGTest::testSpecific()
 {
-  PetscInt ierr = 0;
+  PetscErrorCode ierr = 0;
   PetscMPIInt mpi_rank, mpi_size;
   ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &mpi_rank); CHKERRQ(ierr);
   ierr = MPI_Comm_size(PETSC_COMM_WORLD, &mpi_size); CHKERRQ(ierr);
@@ -116,10 +127,26 @@ int PETScCGTest::testSpecific()
   PetscBarrier(PETSC_NULL);
   if (!mpi_rank) scatter_end = cr::system_clock::now();
 
+  // convert int vector to bigger memory size PetscInt array
+  PetscInt* petsc_loc_ia;
+  PetscInt* petsc_loc_ja;
+  PetscScalar* petsc_loc_a;
+  ierr = PetscMalloc(loc_ia.size() * sizeof(PetscInt), &petsc_loc_ia); CHKERRQ(ierr);
+  ierr = PetscMalloc(loc_ja.size() * sizeof(PetscInt), &petsc_loc_ja); CHKERRQ(ierr);
+  ierr = PetscMalloc(loc_a.size() * sizeof(PetscScalar), &petsc_loc_a); CHKERRQ(ierr);
+  for (int i = 0; i < loc_ia.size(); ++i) petsc_loc_ia[i] = static_cast<PetscInt>(loc_ia[i]);
+  for (int i = 0; i < loc_ja.size(); ++i) petsc_loc_ja[i] = static_cast<PetscInt>(loc_ja[i]);
+  for (int i = 0; i < loc_a.size(); ++i) petsc_loc_a[i] = static_cast<PetscInt>(loc_a[i]);
+
   Mat A;
-  ierr = MatCreateMPIAIJWithArrays(PETSC_COMM_WORLD, loc_rows, PETSC_DECIDE, 
-    PETSC_DETERMINE, sizea, (PetscInt*) loc_ia.data(), (PetscInt*) loc_ja.data(),
-    loc_a.data(), &A); CHKERRQ(ierr);
+  ierr = MatCreateMPIAIJWithArrays(PETSC_COMM_WORLD, loc_rows, PETSC_DECIDE,
+    PETSC_DETERMINE, sizea, petsc_loc_ia, petsc_loc_ja,
+    petsc_loc_a, &A); CHKERRQ(ierr);
+
+  ierr = PetscFree(petsc_loc_ia); CHKERRQ(ierr);
+  ierr = PetscFree(petsc_loc_ja); CHKERRQ(ierr);
+  ierr = PetscFree(petsc_loc_a); CHKERRQ(ierr);
+
   ierr = MatAssemblyBegin(A, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
   ierr = MatAssemblyEnd(A, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
 //  ierr = MatView(A, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
@@ -141,6 +168,7 @@ int PETScCGTest::testSpecific()
   ierr = KSPMonitorSet(ksp, MyKSPMonitor, NULL, 0); CHKERRQ(ierr);
   ierr = KSPSetOperators(ksp, A, A); CHKERRQ(ierr);
   ierr = KSPSetType(ksp, KSPCG); CHKERRQ(ierr);
+//  ierr = KSPSetType(ksp, KSPGMRES); CHKERRQ(ierr);
   ierr = KSPSetTolerances(ksp, tol, PETSC_DEFAULT,
     PETSC_DEFAULT, maxiter); CHKERRQ(ierr);
   ierr = KSPSetFromOptions(ksp); CHKERRQ(ierr);
@@ -152,169 +180,37 @@ int PETScCGTest::testSpecific()
 
   PetscBarrier((PetscObject)A);
   if (!mpi_rank) start = cr::system_clock::now();
-
+//  VecView(b, PETSC_VIEWER_STDOUT_WORLD);
+//  MatView(A, PETSC_VIEWER_STDOUT_WORLD);
   ierr = KSPSolve(ksp, b, result); CHKERRQ(ierr);
 
   PetscBarrier((PetscObject)A);
   if (!mpi_rank) end = cr::system_clock::now();
 
-  PetscInt its;
-  ierr = KSPGetIterationNumber(ksp, &its); CHKERRQ(ierr);
-  PetscScalar res_norm;
-  ierr = KSPGetResidualNorm(ksp, &res_norm); CHKERRQ(ierr);
-  PetscScalar norm;
-  ierr = VecAXPY(result, -1.0, ref_result); CHKERRQ(ierr);
-  ierr = VecNorm(result, NORM_2, &norm); CHKERRQ(ierr);
-  if (!mpi_rank)
-  {
-    cout << "The system has been solved\n";
-    cout << "Number of iterations: " << its << endl;
-    cout << "Residual norm: " << res_norm << endl;
-    cout << "Error norm: " << norm << endl;
+  KSPConvergedReason reason;
+  KSPGetConvergedReason(ksp, &reason);
+  if (reason < 0) {
+    cout << "Divergence detected: " << reason << endl;
   }
-
-  ierr = KSPDestroy(&ksp); CHKERRQ(ierr);
-  ierr = MatDestroy(&A); CHKERRQ(ierr);
-  ierr = VecDestroy(&ref_result); CHKERRQ(ierr);
-  ierr = VecDestroy(&result); CHKERRQ(ierr);
-  ierr = VecDestroy(&b); CHKERRQ(ierr);
-
-  return ierr;
-}
-
-/*
-int PETScCGTest::test()
-{
-  PetscInt ierr = 0;
-  PetscMPIInt rank, size;
-
-  ierr = PetscInitialize(&argc, &argv, (char*)0, (char*)0);
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-  ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
-  if (!rank) cout << "Number of processes: " << size << endl;
-
-  // there is no way to initialize parallel matrix from the union CSR
-  // it requires separate CSR to each process.
-  // Save to binary file used instead to load as parallel after.
-  // Another way is the matrix conversion to MTX(COO) format and SetValues().
-  // first we check the existence of the .petsc file and if not found generate it once
-  petscfilename.assign(A_name);
-  petscfilename = petscfilename.substr(0, petscfilename.find_last_of(".")).append(".petsc");
-  if (!rank)
+  else
   {
-    ifstream petscfile(petscfilename);
-    if (!petscfile.good())
+    PetscInt its;
+    ierr = KSPGetIterationNumber(ksp, &its); CHKERRQ(ierr);
+    PetscScalar res_norm;
+    ierr = KSPGetResidualNorm(ksp, &res_norm); CHKERRQ(ierr);
+    if (!mpi_rank)
     {
-      read_matrix_file(string(A_name), file_format, ia, ja, a, sizea, nnza);
-
-      Mat convertA;
-      ierr = MatCreateSeqAIJWithArrays(PETSC_COMM_SELF, sizea, sizea,
-        &ia[0], &ja[0], &a[0], &convertA); CHKERRQ(ierr);
-      ierr = MatAssemblyBegin(convertA, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
-      ierr = MatAssemblyEnd(convertA, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
-
-      Vec ref_result, b;
-      ierr = VecCreateSeq(PETSC_COMM_SELF, sizea, &ref_result); CHKERRQ(ierr);
-      ierr = VecDuplicate(ref_result, &b); CHKERRQ(ierr);
-      ierr = VecSet(ref_result, 1.0); CHKERRQ(ierr);
-      ierr = MatMult(convertA, ref_result, b); CHKERRQ(ierr);
-
-      PetscViewer viewer;
-      ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF, petscfilename.c_str(),
-        FILE_MODE_WRITE, &viewer); CHKERRQ(ierr);
-      MatView(convertA, viewer);
-      VecView(b, viewer);
-
-      ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
-      ierr = MatDestroy(&convertA); CHKERRQ(ierr);
-      ierr = VecDestroy(&ref_result); CHKERRQ(ierr);
-      ierr = VecDestroy(&b); CHKERRQ(ierr);
+      cout << "The system has been solved\n";
+      cout << "Number of iterations: " << its << endl;
+      cout << "Residual norm: " << res_norm << endl;
     }
   }
-  PetscBarrier(NULL);
-
-  int err = testSpecific();
-
-  if (!rank)
-  {
-    const int time = cr::duration_cast<cr::milliseconds>(end - start).count();
-    cout << "Time == " << time << " ms" << endl;
-    cout << "Error code == " << err << std::endl;
-  }
-  ierr = PetscFinalize();
-  return ierr;
-}
-
-int PETScCGTest::testSpecific()
-{
-  PetscInt ierr = 0;
-  Mat A;
-  Vec b;
-  PetscViewer viewer;
-  ierr = PetscViewerBinaryOpen(PETSC_COMM_WORLD, petscfilename.c_str(),
-    FILE_MODE_READ, &viewer); CHKERRQ(ierr);
-  ierr = MatCreate(PETSC_COMM_WORLD, &A); CHKERRQ(ierr);
-  ierr = MatSetType(A, MATAIJ); CHKERRQ(ierr);
-  ierr = MatLoad(A, viewer); CHKERRQ(ierr);
-  ierr = MatCreateVecs(A, &b, NULL); CHKERRQ(ierr);
-  ierr = VecLoad(b, viewer); CHKERRQ(ierr);
-  ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
-
-  Vec result, ref_result;
-  ierr = VecDuplicate(b, &result); CHKERRQ(ierr);
-  ierr = VecSet(result, 0.0); CHKERRQ(ierr);
-  ierr = VecDuplicate(b, &ref_result); CHKERRQ(ierr);
-  ierr = VecSet(ref_result, 1.0); CHKERRQ(ierr);
-
-  KSP ksp;
-  PC pc;
-  ierr = KSPCreate(PETSC_COMM_WORLD, &ksp); CHKERRQ(ierr);
-  ierr = KSPGetPC(ksp, &pc); CHKERRQ(ierr);
-  ierr = PCSetType(pc, PCJACOBI); CHKERRQ(ierr);
-  KSPMonitorSet(ksp, MyKSPMonitor, NULL, 0);
-  ierr = KSPSetFromOptions(ksp); CHKERRQ(ierr);
-  ierr = KSPSetOperators(ksp, A, A); CHKERRQ(ierr);
-  ierr = KSPSetType(ksp, KSPCG); CHKERRQ(ierr);
-  ierr = KSPSetTolerances(ksp, tol, PETSC_DEFAULT,
-    PETSC_DEFAULT, maxiter); CHKERRQ(ierr);
-
-  // These calls are optional enable more precise profiling, 
-  // since both will be called within KSPSolve() if they 
-  // haven't been called already.
-  ierr = KSPSetUp(ksp); CHKERRQ(ierr);
-
-  PetscMPIInt rank;
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-
-  PetscBarrier((PetscObject)A);
-  if (!rank) start = cr::system_clock::now();
-
-  ierr = KSPSolve(ksp, b, result); CHKERRQ(ierr);
-
-  PetscBarrier((PetscObject)A);
-  if (!rank) end = cr::system_clock::now();
-
-  PetscInt its;
-  ierr = KSPGetIterationNumber(ksp, &its); CHKERRQ(ierr);
-  PetscScalar res_norm;
-  ierr = KSPGetResidualNorm(ksp, &res_norm); CHKERRQ(ierr);
-  PetscScalar norm;
-  ierr = VecAXPY(result, -1.0, ref_result); CHKERRQ(ierr);
-  ierr = VecNorm(result, NORM_2, &norm); CHKERRQ(ierr);
-  if (!rank)
-  {
-    cout << "The system has been solved\n";
-    cout << "Number of iterations: " << its << endl;
-    cout << "Residual norm: " << res_norm << endl;
-    cout << "Error norm: " << norm << endl;
-  }
 
   ierr = KSPDestroy(&ksp); CHKERRQ(ierr);
   ierr = MatDestroy(&A); CHKERRQ(ierr);
   ierr = VecDestroy(&ref_result); CHKERRQ(ierr);
   ierr = VecDestroy(&result); CHKERRQ(ierr);
   ierr = VecDestroy(&b); CHKERRQ(ierr);
+
   return ierr;
 }
-
-*/
