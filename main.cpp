@@ -185,7 +185,10 @@ int main(int argc, char* argv[])
   std::unique_ptr<SolverTest> test = std::make_unique<PETScCGTest>();
   test->argc = argc;
   test->argv = argv;
-  test->A_name = "TestHomoStress4k.mtx";
+//  test->A_name = "c:\\Ulkin\\Projects\\GitHub\\MPI_T1\\workdir\\Test.mtx";
+  test->A_name = "c:\\Ulkin\\Projects\\GitHub\\MPI_T1\\workdir\\TestHomoStress4k.mtx";
   test->file_format = MatrixFileFormat::MTX;
   test->test();
+  cout << "Press Any Key to continue ........................" << endl;
+  getchar();
 }
