@@ -15,32 +15,16 @@ PetscErrorCode MyKSPMonitor(KSP ksp, PetscInt n, PetscReal rnorm, void* dummy)
 
 int PETScCGTest::test()
 {
-  PetscInt ierr = 0;
-  PetscMPIInt rank, size;
+	read_matrix_file(string(A_name), file_format, ia, ja, a, sizea, nnza);
+	if (sizea == 0) return -1;
 
-  //ierr = PetscInitialize(&argc, &argv, (char*)0, (char*)0);
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-  ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
+	int err = testSpecific();
 
-  if (!rank) 
-  {
-    
-    read_matrix_file(string(A_name), file_format, ia, ja, a, sizea, nnza);
-    if (sizea == 0)
-      return -1;
-  }
-  int err = testSpecific();
-
-  if (!rank)
-  {
-    const int scatter_time = cr::duration_cast<cr::milliseconds>(scatter_end - scatter_start).count();
-    const int time = cr::duration_cast<cr::milliseconds>(end - start).count();
-    cout << "Scatter time == " << scatter_time << " ms" << endl; // ~~~
-    cout << "Solve time   == " << time << " ms" << endl;
-    cout << "Error code   == " << err << std::endl;
-  }
-  //ierr = PetscFinalize();
-  return ierr;
+	const int scatter_time = cr::duration_cast<cr::milliseconds>(scatter_end - scatter_start).count();
+	const int time = cr::duration_cast<cr::milliseconds>(end - start).count();
+	cout << "Scatter time == " << scatter_time << " ms" << endl; // ~~~
+	cout << "Solve time   == " << time << " ms" << endl;
+	cout << "Error code   == " << err << std::endl;
 }
 
 int localSize(int global_size, int mpi_rank, int mpi_size)
@@ -50,17 +34,30 @@ int localSize(int global_size, int mpi_rank, int mpi_size)
 
 int PETScCGTest::testSpecific()
 {
-  PetscErrorCode ierr = 0;
-  PetscMPIInt mpi_rank, mpi_size;
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &mpi_rank); CHKERRQ(ierr);
-  ierr = MPI_Comm_size(PETSC_COMM_WORLD, &mpi_size); CHKERRQ(ierr);
+	ProcessController pc(true);
 
-  PetscBarrier(PETSC_NULL);
-  if (!mpi_rank) scatter_start = cr::system_clock::now();
+	class CGTask : public ProcessTask
+	{
+	public:
+		void task() override
+		{
+			ProcessController pc;
+			int rank, size;
+			pc.getInfo(rank, size);
+			std::cout << " >>>>>>>>>>>>>> Rank [" << rank << "]: CGTask called <<<<<<<<<<<<<" << std::endl;
+		}
+	};
 
+	CGTask SomeTask;
+
+	pc.handle(SomeTask);
+
+  //scatter_start = cr::system_clock::now();
+  /*
   int root = 0;
+  // Sending matrix size here
   MPI_Bcast(&sizea, 1, MPI_INT, root, PETSC_COMM_WORLD);
-
+ 
   // make local CSR from global CSR
   // https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatCreateMPIAIJWithArrays.html
   // ia on each processors starts with zero
@@ -202,6 +199,8 @@ int PETScCGTest::testSpecific()
   ierr = VecDestroy(&ref_result); CHKERRQ(ierr);
   ierr = VecDestroy(&result); CHKERRQ(ierr);
   ierr = VecDestroy(&b); CHKERRQ(ierr);
-
-  return ierr;
+  */
+	
+	
+	return 0;  
 }

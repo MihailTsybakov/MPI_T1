@@ -19,18 +19,27 @@ int main(int argc, char* argv[])
 	ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
 
 	int mypid = _getpid();
-	//std::cout << " Rank [" << rank << "]: Pid = " << mypid << std::endl;
+	std::cout << " Rank [" << rank << "]: Pid = " << mypid << std::endl;
 
-	ProcessController PC(PETSC_COMM_WORLD, true);
+	if (!rank) 
+	{
+		std::cout << "Press any key to continue..." << std::endl;
+		getchar();
+	}
+
+	PetscBarrier(PETSC_NULL);
+
+	ProcessController PC(true);
 	if (rank)
 	{
-		PC.handle(rank, size);
-		PetscFinalize();
+		PC.wait();
 		return 0;
 	}
 
 	// Invoking solver in helper processes
-	PC.sendCommand(4);
+	
+
+	//PC.sendCommand(4);
 
 	std::unique_ptr<SolverTest> test = std::make_unique<PETScCGTest>();
 	test->argc = argc;
@@ -39,22 +48,9 @@ int main(int argc, char* argv[])
 	test->file_format = MatrixFileFormat::MTX;
 	test->test();
 
-	PC.shutdown();
-
-	PetscFinalize();
+	PC.handle(0);
+	
 	return 0;
 }
 
 // "C:\\tcybakov\\MPI_Ksp_Solver\\repository\\Testing\\TestHomoStress4k.mtx"
-//  test->A_name = "c:\\Ulkin\\Projects\\GitHub\\MPI_T1\\workdir\\Test.mtx";
-
-/*cout << "Number of processes: " << size << endl;
-cout << "Press Enter........................" << endl;
-cout.flush();
-getchar();*/
-
-//char buffer[1024];
-//sprintf_s(buffer, "MyPid = |%d|\n", mypid);
-//cout << buffer;
-
-//if (rank) PetscBarrier(PETSC_NULL);

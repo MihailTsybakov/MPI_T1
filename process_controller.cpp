@@ -1,14 +1,25 @@
 #include "process_controller.h"
 
-ProcessController::ProcessController(MPI_Comm communicator, bool logs) : communicator(communicator), logs(logs)  {}
+ProcessController::ProcessController(bool logs) : logs(logs)  {}
 
-void ProcessController::handle(int rank, int size)
+void ProcessController::handle_tmp(int command)
 {
+	int rank, size;
+	getInfo(rank, size);
 	bool handle_flag = true;
 	while (handle_flag)
 	{
-		int command;
-		MPI_Bcast(&command, 1, MPI_INT, 0, communicator);
+		if (rank)
+		{
+			MPI_Bcast(&command, 1, MPI_INT, 0, communicator);
+		}
+		else
+		{
+			sendCommand(command);
+			handle_flag = false;
+		}
+
+		tasks[command];
 
 		switch (command)
 		{
@@ -16,6 +27,7 @@ void ProcessController::handle(int rank, int size)
 			// Finalizing handle
 			if (logs) std::cout << " <logs> Rank [" << rank << "]: Shutting down. " << std::endl;
 			handle_flag = false;
+			PetscFinalize();
 			break;
 		case 1:
 			// Pi
@@ -35,12 +47,7 @@ void ProcessController::handle(int rank, int size)
 		case 4:
 		{
 			// Solver call
-			std::unique_ptr<SolverTest> test = std::make_unique<PETScCGTest>();
-			test->argc = 0; //~~
-			test->argv = nullptr; //!!
-			test->A_name = "C:\\tcybakov\\MPI_Ksp_Solver\\repository\\Testing\\TestHomoStress4k.mtx";
-			test->file_format = MatrixFileFormat::MTX;
-			test->test();
+			std::cout << " Rank [" << rank << "]: Called solver" << std::endl;
 			break;
 		}
 		default:
@@ -50,8 +57,38 @@ void ProcessController::handle(int rank, int size)
 			break;
 		}
 	}
-	//MPI_Finalize();
 }
+
+void ProcessController::wait()
+{
+	MPI_Barrier(communicator);
+}
+
+void ProcessController::yield()
+{
+	MPI_Barrier(communicator);
+}
+
+void ProcessController::handle(ProcessTask& task, int command)
+{
+	int rank, size;
+	getInfo(rank, size);
+	bool work_flag = true;
+	while (work_flag)
+	{
+		if (rank)
+		{
+			MPI_Bcast(&command, 1, MPI_INT, 0, communicator);
+		}
+		else
+		{
+			sendCommand(command);
+			work_flag = false;
+		}
+		task.task();
+	}
+}
+
 
 void ProcessController::sendCommand(int command)
 {
@@ -61,4 +98,10 @@ void ProcessController::sendCommand(int command)
 void ProcessController::shutdown()
 {
 	sendCommand(0);
+}
+
+void ProcessController::getInfo(int& rank, int& size) const
+{
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
 }
