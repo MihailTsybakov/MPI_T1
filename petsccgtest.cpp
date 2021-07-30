@@ -36,171 +36,106 @@ int PETScCGTest::testSpecific()
 {
 	ProcessController pc(true);
 
-	class CGTask : public ProcessTask
+	// Updating context
+	pc.context.matrix_size = sizea;
+
+	// Sending matrix size
+	pc.evaluateTask(1);
+
+	scatter_start = cr::system_clock::now();
+
+	// Scattering IA (Everything is stored in local root context until evaluateTask() is called)
+	pc.context.ia = ia; // ~~!!
+	pc.context.ja = ja;
+	pc.context.a = a;
+
+	pc.context.loc_ia_sizes.resize(pc.mpiSize);
+	pc.context.loc_ia_starts.resize(pc.mpiSize);
+
+	pc.context.loc_ia_sizes[0] = localSize(sizea, 0, pc.mpiSize);
+	pc.context.loc_ia_starts[0] = 1;
+	for (int rank = 1; rank < pc.mpiSize; ++rank)
 	{
-	public:
-		void task() override
+		pc.context.loc_ia_sizes[rank] = localSize(sizea, rank, pc.mpiSize);
+		pc.context.loc_ia_starts[rank] = pc.context.loc_ia_starts[rank - 1] + pc.context.loc_ia_sizes[rank - 1];
+	}
+	for (int rank = pc.mpiSize - 1; rank >= 0; rank--)
+	{
+		for (int i = 0; i < pc.context.loc_ia_sizes[rank]; ++i)
 		{
-			ProcessController pc;
-			int rank, size;
-			pc.getInfo(rank, size);
-			std::cout << " >>>>>>>>>>>>>> Rank [" << rank << "]: CGTask called <<<<<<<<<<<<<" << std::endl;
+			pc.context.ia[pc.context.loc_ia_starts[rank] + i] -= pc.context.ia[pc.context.loc_ia_starts[rank] - 1];
 		}
-	};
+	}
 
-	CGTask SomeTask;
+	pc.context.loc_rows = localSize(sizea, pc.mpiRank, pc.mpiSize);
 
-	pc.handle(SomeTask);
+	// Scatterv
+	pc.evaluateTask(2);
 
-  //scatter_start = cr::system_clock::now();
-  /*
-  int root = 0;
-  // Sending matrix size here
-  MPI_Bcast(&sizea, 1, MPI_INT, root, PETSC_COMM_WORLD);
- 
-  // make local CSR from global CSR
-  // https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatCreateMPIAIJWithArrays.html
-  // ia on each processors starts with zero
-  vector<int> loc_ia_sizes(mpi_size);
-  vector<int> loc_ia_starts(mpi_size);
-  if (!mpi_rank)
-  {
-    loc_ia_sizes[0] = localSize(sizea, 0, mpi_size);
-    loc_ia_starts[0] = 1;
-    for (int rank = 1; rank < mpi_size; ++rank)
-    {
-      loc_ia_sizes[rank] = localSize(sizea, rank, mpi_size);
-      loc_ia_starts[rank] = loc_ia_starts[rank - 1] + loc_ia_sizes[rank - 1];
-    }
-    for (int rank = mpi_size - 1; rank >= 0; rank--)
-    {
-      for (int i = 0; i < loc_ia_sizes[rank]; ++i)
-      {
-        ia[loc_ia_starts[rank] + i] -= ia[loc_ia_starts[rank] - 1];
-      }
-    }
-  }
-  int loc_rows = localSize(sizea, mpi_rank, mpi_size);
-  vector<int> loc_ia(loc_rows + 1);
-  loc_ia[0] = 0;
-  MPI_Scatterv(ia.data(), loc_ia_sizes.data(), loc_ia_starts.data(), MPI_INT,
-    loc_ia.data() + 1, loc_rows, MPI_INT, root, PETSC_COMM_WORLD);
+	// Scattering JA
+	pc.context.loc_val_sizes.resize(pc.mpiSize);  // Excess?
+	pc.context.loc_val_starts.resize(pc.mpiSize); // Excess?
 
-  // ja, a
-  vector<int> loc_val_sizes(mpi_size);
-  vector<int> loc_val_starts(mpi_size);
-  if (!mpi_rank)
-  {
-    int sum = 0;
-    for (int rank = 0; rank < mpi_size; ++rank)
-    {
-      // number of elements is in the last local ia
-      int last_loc_ia_idx = loc_ia_starts[rank] + loc_ia_sizes[rank] - 1;
-      loc_val_sizes[rank] = ia[last_loc_ia_idx];
-      loc_val_starts[rank] = sum;
-      sum += loc_val_sizes[rank];
-    }
-  }
-  int loc_num = loc_ia[loc_ia.size() - 1];
-  vector<int> loc_ja(loc_num);
-  MPI_Scatterv(ja.data(), loc_val_sizes.data(), loc_val_starts.data(), MPI_INT,
-    loc_ja.data(), loc_num, MPI_INT, root, PETSC_COMM_WORLD);
-  vector<double> loc_a(loc_num);
-  MPI_Scatterv(a.data(), loc_val_sizes.data(), loc_val_starts.data(), MPI_DOUBLE,
-    loc_a.data(), loc_num, MPI_DOUBLE, root, PETSC_COMM_WORLD);
+	int sum = 0;
+	for (int rank = 0; rank < pc.mpiSize; ++rank)
+	{
+		// Number of elements is in the last local ia
+		int last_loc_ia_idx = pc.context.loc_ia_starts[rank] + pc.context.loc_ia_sizes[rank] - 1;
+		pc.context.loc_val_sizes[rank] = pc.context.ia[last_loc_ia_idx];
+		pc.context.loc_val_starts[rank] = sum;
+		sum += pc.context.loc_val_sizes[rank];
+	}
 
-  // remove global
-  if (!mpi_rank) ia.resize(0); ja.resize(0); a.resize(0);
+	// Scatterv
+	pc.evaluateTask(3);
 
-  PetscBarrier(PETSC_NULL);
-  if (!mpi_rank) scatter_end = cr::system_clock::now();
+	// Scattering A
+	pc.evaluateTask(4);
 
-  // convert int vector to bigger memory size PetscInt array
-  PetscInt* petsc_loc_ia;
-  PetscInt* petsc_loc_ja;
-  PetscScalar* petsc_loc_a;
-  ierr = PetscMalloc(loc_ia.size() * sizeof(PetscInt), &petsc_loc_ia); CHKERRQ(ierr);
-  ierr = PetscMalloc(loc_ja.size() * sizeof(PetscInt), &petsc_loc_ja); CHKERRQ(ierr);
-  ierr = PetscMalloc(loc_a.size() * sizeof(PetscScalar), &petsc_loc_a); CHKERRQ(ierr);
-  for (int i = 0; i < loc_ia.size(); ++i) petsc_loc_ia[i] = static_cast<PetscInt>(loc_ia[i]);
-  for (int i = 0; i < loc_ja.size(); ++i) petsc_loc_ja[i] = static_cast<PetscInt>(loc_ja[i]);
-  for (int i = 0; i < loc_a.size(); ++i) petsc_loc_a[i] = static_cast<PetscInt>(loc_a[i]);
+	scatter_end = cr::system_clock::now();
 
-  Mat A;
-  ierr = MatCreateMPIAIJWithArrays(PETSC_COMM_WORLD, loc_rows, PETSC_DECIDE,
-    PETSC_DETERMINE, sizea, petsc_loc_ia, petsc_loc_ja,
-    petsc_loc_a, &A); CHKERRQ(ierr);
+	// Removing full ia, ja, a from root context:
+	pc.context.ia.resize(0);
+	pc.context.ja.resize(0);
+	pc.context.a.resize(0);
 
-  ierr = PetscFree(petsc_loc_ia); CHKERRQ(ierr);
-  ierr = PetscFree(petsc_loc_ja); CHKERRQ(ierr);
-  ierr = PetscFree(petsc_loc_a); CHKERRQ(ierr);
+	// Converting to Petsc data types:
+	pc.evaluateTask(7);
 
-  ierr = MatAssemblyBegin(A, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
-  ierr = MatAssemblyEnd(A, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
-//  ierr = MatView(A, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
+	// Creating MPI matrix
+	pc.evaluateTask(8);
 
-  Vec result, ref_result, b;
-  ierr = MatCreateVecs(A, &b, NULL); CHKERRQ(ierr);
-  ierr = VecDuplicate(b, &result); CHKERRQ(ierr);
-  ierr = VecDuplicate(b, &ref_result); CHKERRQ(ierr);
-  ierr = VecSet(result, 0.0); CHKERRQ(ierr);
-  ierr = VecSet(ref_result, 1.0); CHKERRQ(ierr);
-  ierr = MatMult(A, ref_result, b); CHKERRQ(ierr);
-//  ierr = VecView(b, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
+	// Releasing Petsc memory
+	pc.evaluateTask(9);
 
-  KSP ksp;
-  PC pc;
-  ierr = KSPCreate(PETSC_COMM_WORLD, &ksp); CHKERRQ(ierr);
-  ierr = KSPGetPC(ksp, &pc); CHKERRQ(ierr);
-  ierr = PCSetType(pc, PCJACOBI); CHKERRQ(ierr);
-  ierr = KSPMonitorSet(ksp, MyKSPMonitor, NULL, 0); CHKERRQ(ierr);
-  ierr = KSPSetOperators(ksp, A, A); CHKERRQ(ierr);
-  ierr = KSPSetType(ksp, KSPCG); CHKERRQ(ierr);
-//  ierr = KSPSetType(ksp, KSPGMRES); CHKERRQ(ierr);
-  ierr = KSPSetTolerances(ksp, tol, PETSC_DEFAULT,
-    PETSC_DEFAULT, maxiter); CHKERRQ(ierr);
-  ierr = KSPSetFromOptions(ksp); CHKERRQ(ierr);
+	// MPI matrix assembly
+	pc.evaluateTask(10);
 
-  // These calls are optional enable more precise profiling, 
-  // since both will be called within KSPSolve() if they 
-  // haven't been called already.
-  ierr = KSPSetUp(ksp); CHKERRQ(ierr);
+	// Block A: Forming vectors
+	pc.evaluateTask(11);
 
-  PetscBarrier((PetscObject)A);
-  if (!mpi_rank) start = cr::system_clock::now();
-//  VecView(b, PETSC_VIEWER_STDOUT_WORLD);
-//  MatView(A, PETSC_VIEWER_STDOUT_WORLD);
-  ierr = KSPSolve(ksp, b, result); CHKERRQ(ierr);
+	// Block B: Solver set up
+	pc.evaluateTask(12);
 
-  PetscBarrier((PetscObject)A);
-  if (!mpi_rank) end = cr::system_clock::now();
+	start = cr::system_clock::now();
 
-  KSPConvergedReason reason;
-  KSPGetConvergedReason(ksp, &reason);
-  if (reason < 0) {
-    cout << "Divergence detected: " << reason << endl;
-  }
-  else
-  {
-    PetscInt its;
-    ierr = KSPGetIterationNumber(ksp, &its); CHKERRQ(ierr);
-    PetscScalar res_norm;
-    ierr = KSPGetResidualNorm(ksp, &res_norm); CHKERRQ(ierr);
-    if (!mpi_rank)
-    {
-      cout << "The system has been solved\n";
-      cout << "Number of iterations: " << its << endl;
-      cout << "Residual norm: " << res_norm << endl;
-    }
-  }
+	// Invoking solver
+	pc.evaluateTask(13);
 
-  ierr = KSPDestroy(&ksp); CHKERRQ(ierr);
-  ierr = MatDestroy(&A); CHKERRQ(ierr);
-  ierr = VecDestroy(&ref_result); CHKERRQ(ierr);
-  ierr = VecDestroy(&result); CHKERRQ(ierr);
-  ierr = VecDestroy(&b); CHKERRQ(ierr);
-  */
-	
+	end = cr::system_clock::now();
+
+	// Checking solution params & convergence
+	pc.evaluateTask(14);
+
+	cout << "The system has been solved\n";
+	cout << "Number of iterations: " << pc.context.iterations << endl;
+	cout << "Residual norm: " << pc.context.res_norm << endl;
+
+	// Releasing solver memory
+	pc.evaluateTask(15);
+
+	// Shutting down all processes:
+	pc.evaluateTask(-1);
 	
 	return 0;  
 }
